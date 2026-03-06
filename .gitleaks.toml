@@ -47,7 +47,7 @@ regex       = '''[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'''
 tags        = ["email", "pii"]
 
   [rules.allowlist]
-  description = "Email addresses are expected in npm package metadata files"
+  description = "Email addresses are expected in npm package metadata files and as example values in code"
   paths = [
     '''(^|/)package\.json$''',
     '''(^|/)package-lock\.json$''',
@@ -55,11 +55,15 @@ tags        = ["email", "pii"]
     '''(?i)(^|/)test(/|$)''',
     '''(^|/)asyncapi\.ya?ml$''',
   ]
+  regexes = [
+    # Emails using universally-recognised placeholder domains — not real credentials
+    '''[a-zA-Z0-9._%+\-]+@(example\.(com|org|net)|domain\.com|test\.com|localhost)''',
+  ]
 
 [[rules]]
 id          = "appconfig-literal-secret"
 description = "Literal secret value found in appconfig file - use KeyVault reference instead"
-regex       = '''(?i)(password|secret|key|token|credential|connectionstring)[a-zA-Z_\-]*:\s*["']?[a-zA-Z0-9+/=._\-]{20,}'''
+regex = '''(?i)(?:password|secret|key|token|credential|connectionstring)[a-zA-Z_\-]*:\s*["']?[a-zA-Z0-9+/=._\-]{20,}'''
 path        = '''appconfig/(prod|pre|pr|dev|test|snd2)\.yaml'''
 tags        = ["appconfig", "keyvault", "secret"]
 
