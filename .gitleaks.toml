@@ -68,12 +68,15 @@ path        = '''appconfig/(prod|pre|pr|dev|test|snd2)\.yaml'''
 tags        = ["appconfig", "keyvault", "secret"]
 
   [rules.allowlist]
-  description = "Allow KeyVault structural keywords"
+  description = "Allow KeyVault structural keywords and Kubernetes secret mapping fields"
   regexes = [
     '''objectName:''',
     '''objectType:''',
     '''secretName:''',
     '''keyvaultName:''',
+    # Kubernetes 'key:' fields in secret store mappings hold env var names
+    # (ALL_CAPS convention), never literal credential values
+    '''key:\s*[A-Z][A-Z0-9_]+''',
   ]
 
 
