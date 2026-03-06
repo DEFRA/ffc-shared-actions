@@ -44,6 +44,19 @@ tags        = ["notify", "secret"]
   description = "Notify test and smoke-test keys are not live credentials"
   stopwords   = ["test", "smoke"]
 
+[[rules]]
+id          = "plaintext-email-address"
+description = "Plain text email address (potential PII leak)"
+regex       = '''[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'''
+tags        = ["email", "pii"]
+
+  [rules.allowlist]
+  description = "Email addresses are expected in npm package metadata files"
+  paths = [
+    '''(^|/)package\.json$''',
+    '''(^|/)package-lock\.json$''',
+  ]
+
 # ---------------------------------------------------------------------------
 # Allow-list — entries here are NEVER flagged, regardless of matching rules.
 #
@@ -64,6 +77,12 @@ description = "Known-safe test values and intentional mock data"
 # fixtures, mock objects).  Add only what is genuinely safe.
 paths = [
   # Jest snapshot or mock-object files are populated with fake tokens.
+  '''(^|/)package\.json$''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)CHANGELOG''',
+  '''(^|/)CONTRIBUTORS''',
+  '''(^|/)LICENSE''',
+  '''\.github/.*''',
   '''test/mock-objects/.*''',
   '''test/mock-modules/.*''',
 ]
