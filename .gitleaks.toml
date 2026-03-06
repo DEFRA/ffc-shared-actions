@@ -57,6 +57,7 @@ tags        = ["email", "pii"]
 id          = "appconfig-literal-secret"
 description = "Literal secret value found in appconfig file - use KeyVault reference instead"
 regex       = '''(?i)(password|secret|key|token|credential|connectionstring)[a-zA-Z_\-]*:\s*["']?[a-zA-Z0-9+/=._\-]{20,}'''
+path        = '''appconfig/(prod|pre|pr|dev|test|snd2)\.yaml'''
 tags        = ["appconfig", "keyvault", "secret"]
 
   [rules.allowlist]
@@ -68,15 +69,6 @@ tags        = ["appconfig", "keyvault", "secret"]
     '''keyvaultName:''',
   ]
 
-  paths = [
-    # Only flag these specific appconfig files
-    '''appconfig/prod\.yaml''',
-    '''appconfig/pre\.yaml''',
-    '''appconfig/pr\.yaml''',
-    '''appconfig/dev\.yaml''',
-    '''appconfig/test\.yaml''',
-    '''appconfig/snd2\.yaml''',
-  ]
 
 # ---------------------------------------------------------------------------
 # Allow-list — entries here are NEVER flagged, regardless of matching rules.
