@@ -34,6 +34,16 @@ description = "Database connection string with embedded password"
 regex       = '''(?i)(postgres|postgresql|mssql|mysql):\/\/[^:]+:[^@]{8,}@'''
 tags        = ["database", "secret"]
 
+[[rules]]
+id          = "notify-api-key"
+description = "GOV.UK Notify API key"
+regex       = '''(?i)notify[_\-]?api[_\-]?key[\s\S]{0,20}[=:]\s*["']?([a-z0-9_\-]{72,})'''
+tags        = ["notify", "secret"]
+
+  [rules.allowlist]
+  description = "Notify test and smoke-test keys are not live credentials"
+  stopwords   = ["test", "smoke"]
+
 # ---------------------------------------------------------------------------
 # Allow-list — entries here are NEVER flagged, regardless of matching rules.
 #
