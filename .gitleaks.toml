@@ -40,10 +40,6 @@ description = "GOV.UK Notify API key"
 regex       = '''(?i)notify[_\-]?api[_\-]?key[a-zA-Z]*[\s\S]{0,20}[=:]\s*["']?([a-z0-9_\-]{72,})'''
 tags        = ["notify", "secret"]
 
-  [rules.allowlist]
-  description = "Notify test and smoke-test keys are not live credentials"
-  stopwords   = ["test", "smoke"]
-
 [[rules]]
 id          = "plaintext-email-address"
 description = "Plain text email address (potential PII leak)"
