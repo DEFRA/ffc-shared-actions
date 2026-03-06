@@ -37,7 +37,7 @@ tags        = ["database", "secret"]
 [[rules]]
 id          = "notify-api-key"
 description = "GOV.UK Notify API key"
-regex       = '''(?i)notify[_\-]?api[_\-]?key[\s\S]{0,20}[=:]\s*["']?([a-z0-9_\-]{72,})'''
+regex       = '''(?i)notify[_\-]?api[_\-]?key[a-zA-Z]*[\s\S]{0,20}[=:]\s*["']?([a-z0-9_\-]{72,})'''
 tags        = ["notify", "secret"]
 
   [rules.allowlist]
