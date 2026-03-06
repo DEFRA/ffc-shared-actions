@@ -51,6 +51,9 @@ tags        = ["email", "pii"]
   paths = [
     '''(^|/)package\.json$''',
     '''(^|/)package-lock\.json$''',
+    '''(?i)(^|/)changelog(/|$)''',
+    '''(?i)(^|/)test(/|$)''',
+    '''(^|/)asyncapi\.ya?ml$''',
   ]
 
 [[rules]]
