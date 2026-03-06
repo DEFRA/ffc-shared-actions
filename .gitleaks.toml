@@ -53,6 +53,31 @@ tags        = ["email", "pii"]
     '''(^|/)package-lock\.json$''',
   ]
 
+[[rules]]
+id          = "appconfig-literal-secret"
+description = "Literal secret value found in appconfig file - use KeyVault reference instead"
+regex       = '''(?i)(password|secret|key|token|credential|connectionstring)[a-zA-Z_\-]*:\s*["']?[a-zA-Z0-9_\-]{20,}'''
+tags        = ["appconfig", "keyvault", "secret"]
+
+  [rules.allowlist]
+  description = "Allow KeyVault structural keywords"
+  regexes = [
+    '''objectName:''',
+    '''objectType:''',
+    '''secretName:''',
+    '''keyvaultName:''',
+  ]
+
+  paths = [
+    # Only flag these specific appconfig files
+    '''appconfig/prod\.yaml''',
+    '''appconfig/pre\.yaml''',
+    '''appconfig/pr\.yaml''',
+    '''appconfig/dev\.yaml''',
+    '''appconfig/test\.yaml''',
+    '''appconfig/snd2\.yaml''',
+  ]
+
 # ---------------------------------------------------------------------------
 # Allow-list — entries here are NEVER flagged, regardless of matching rules.
 #
