@@ -114,11 +114,11 @@ paths = [
 # Each entry should be as specific as possible — prefer an exact literal over
 # a broad pattern.
 #
+regexTarget = "line" 
 regexes = [
   # Well-known Azurite (Azure Storage Emulator) development AccountKey.
   # This is the hardcoded, publicly-documented test credential built into every
   # Azurite instance — it is never a live secret.
   # Ref: https://learn.microsoft.com/azure/storage/common/storage-use-azurite#well-known-storage-account-and-key
-regexTarget = "line" 
  '''AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://[^;]+:10000/devstoreaccount1;''',
 ]
