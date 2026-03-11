@@ -105,6 +105,7 @@ paths = [
   '''(^|/)CHANGELOG''',
   '''(^|/)CONTRIBUTORS''',
   '''(^|/)LICENSE''',
+  '''(^|/)\.secrets\.baseline$''',
   '''\.github/.*''',
   '''test/mock-objects/.*''',
   '''test/mock-modules/.*''',
