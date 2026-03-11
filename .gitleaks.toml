@@ -109,6 +109,7 @@ paths = [
   '''\.github/.*''',
   '''test/mock-objects/.*''',
   '''test/mock-modules/.*''',
+  '''test/mocks/.*''',
 ]
 
 # Individual regex patterns that should never be flagged, regardless of file.
@@ -124,4 +125,6 @@ regexes = [
   # name and BlobEndpoint hostname are irrelevant and vary per service.
   # Ref: https://learn.microsoft.com/azure/storage/common/storage-use-azurite#well-known-storage-account-and-key
   '''AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==''',
+  # rpa email found in many ffc-doc statement templates
+  '''ruralpayments@defra.gov.uk'''
 ]
