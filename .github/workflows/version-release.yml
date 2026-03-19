@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   version-check:
-    name: Ensure VERSION is bumped
+    name: Ensure VERSION number is bumped
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -46,7 +46,7 @@ jobs:
       - name: Read version
         id: version
         run: |
-          VERSION=$(cat VERSION | tr -d '[:space:]')
+          VERSION=$(grep -v '^\s*#' VERSION | tr -d '[:space:]')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
 
@@ -71,3 +71,4 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
+          
