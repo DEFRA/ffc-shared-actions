@@ -26,9 +26,6 @@ on:
       GPG_NAME:
         description: 'Name associated with GPG key'
         required: true
-      GITHUB_TOKEN:
-        description: 'GitHub token for pushing changes'
-        required: true
 
 jobs:
   version-bump:
