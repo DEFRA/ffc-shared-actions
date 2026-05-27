@@ -1,4 +1,4 @@
-name: Version and release
+name: Shared Action Versioning
 
 on:
   pull_request:
