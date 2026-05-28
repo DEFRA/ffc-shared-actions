@@ -88,14 +88,8 @@ jobs:
   version-bump:
     uses: DEFRA/ffc-shared-actions/.github/workflows/version-bump.yml@main
     with:
-      node-version: '24'  # Optional: defaults to '24'
-      target-branch: 'main'  # Optional: defaults to 'main'
-    secrets:
-      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-      GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
-      GPG_EMAIL: ${{ secrets.GPG_EMAIL }}
-      GPG_NAME: ${{ secrets.GPG_NAME }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      node-version: '24'
+    secrets: inherit
 ```
 
 ### 3. Adjust the Reference Version

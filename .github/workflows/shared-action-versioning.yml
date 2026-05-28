@@ -22,16 +22,69 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check VERSION file has changed
+      - name: Ensure VERSION is ahead (auto-bump if needed)
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
         run: |
-          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '^VERSION$'; then
-            echo "VERSION file has been updated."
-          else
-            echo "::error::VERSION file has not been changed. Please bump the version in the VERSION file before merging."
+          set -euo pipefail
+
+          CURRENT_VERSION=$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' VERSION | head -1 || true)
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "::error::VERSION file must contain a semantic version like 1.2.3"
             exit 1
           fi
+
+          LATEST_TAG=$(git tag --sort=-version:refname | head -1 || true)
+          LATEST_VERSION="${LATEST_TAG#v}"
+          LATEST_VERSION="${LATEST_VERSION:-0.0.0}"
+
+          echo "Current VERSION: $CURRENT_VERSION"
+          echo "Latest repo version: $LATEST_VERSION"
+
+          HIGHEST=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$LATEST_VERSION" | sort -V | tail -1)
+          if [ "$CURRENT_VERSION" = "$HIGHEST" ] && [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            echo "VERSION is already ahead. No change needed."
+            exit 0
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          echo "Auto-bumping VERSION to: $NEXT_VERSION"
+
+          awk -v new="$NEXT_VERSION" '
+            BEGIN { replaced=0 }
+            {
+              if (!replaced && $0 !~ /^[[:space:]]*#/ && $0 !~ /^[[:space:]]*$/) {
+                print new
+                replaced=1
+                next
+              }
+              print
+            }
+            END {
+              if (!replaced) print new
+            }
+          ' VERSION > VERSION.tmp
+          mv VERSION.tmp VERSION
+
+          if [ "$IS_FORK" = "true" ]; then
+            echo "::error::PR is from a fork; cannot push auto-bump. Please set VERSION to > $LATEST_VERSION manually."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: bump VERSION to ${NEXT_VERSION}" || {
+            echo "No changes to commit."
+            exit 0
+          }
+          git push origin "HEAD:${HEAD_REF}"
 
   release:
     name: Tag and release
@@ -71,4 +124,3 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
-          
