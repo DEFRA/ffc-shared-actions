@@ -15,17 +15,17 @@ on:
         default: 'main'
     secrets:
       GPG_PRIVATE_KEY:
-        description: 'GPG private key for signing commits'
-        required: true
+        description: 'Optional GPG private key for commit signing (backup). If not provided, uses GitHub Actions automatic signing'
+        required: false
       GPG_KEY_ID:
-        description: 'GPG key ID for signing'
-        required: true
+        description: 'GPG key ID (required only if GPG_PRIVATE_KEY is provided)'
+        required: false
       GPG_EMAIL:
-        description: 'Email associated with GPG key'
-        required: true
+        description: 'Email associated with GPG key (required only if GPG_PRIVATE_KEY is provided)'
+        required: false
       GPG_NAME:
-        description: 'Name associated with GPG key'
-        required: true
+        description: 'Name associated with GPG key (required only if GPG_PRIVATE_KEY is provided)'
+        required: false
 
 jobs:
   version-bump:
@@ -49,28 +49,33 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Set up GPG keys for signing
-        run: |
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          git config --global user.signingkey ${{ secrets.GPG_KEY_ID }}
-          git config --global commit.gpgsign true
-          git config --global user.email ${{ secrets.GPG_EMAIL }}
-          git config --global user.name ${{ secrets.GPG_NAME }}
+      - name: Configure git for signing
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "Configuring GPG keys for commit signing..."
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+            git config --global user.signingkey ${{ secrets.GPG_KEY_ID }}
+            git config --global commit.gpgsign true
+            git config --global user.email ${{ secrets.GPG_EMAIL }}
+            git config --global user.name ${{ secrets.GPG_NAME }}
+          else
+            echo "Using GitHub Actions automatic commit signing"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git config --global user.name "github-actions[bot]"
+          fi
 
       - name: Determine if version bump is needed
         id: version-check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Prefer the latest GitHub release; fall back to the latest git tag
           LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || echo "")
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG=$(git tag --sort=-version:refname | head -1)
           fi
 
-          # If nothing exists yet, treat baseline as 0.0.0
           LATEST_VERSION="${LATEST_TAG#v}"
           LATEST_VERSION="${LATEST_VERSION:-0.0.0}"
 
@@ -79,7 +84,6 @@ jobs:
           echo "Latest released version: $LATEST_VERSION"
           echo "Current package.json version: $CURRENT_VERSION"
 
-          # Only bump if the current version is not already strictly ahead
           NEEDS_BUMP=$(node -e "
             const [cm, cn, cp] = '$CURRENT_VERSION'.split('.').map(Number);
             const [lm, ln, lp] = '$LATEST_VERSION'.split('.').map(Number);
@@ -97,8 +101,13 @@ jobs:
         if: steps.version-check.outputs.needs_bump == 'true'
         env:
           HEAD_REF: ${{ github.head_ref }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
           NEW_VERSION=$(node -p "require('./package.json').version")
           git add package.json package-lock.json
-          git commit -S -m "chore: bump version to ${NEW_VERSION}"
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            git commit -S -m "chore: bump version to ${NEW_VERSION}"
+          else
+            git commit -m "chore: bump version to ${NEW_VERSION}"
+          fi
           git push origin "$HEAD_REF"
