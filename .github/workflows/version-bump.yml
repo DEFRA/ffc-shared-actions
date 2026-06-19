@@ -89,18 +89,19 @@ jobs:
         run: |
           NEW_VERSION=$(node -p "require('./package.json').version")
           git add package.json package-lock.json
-          if git commit -m "chore: bump version to ${NEW_VERSION}"; then
-            git push origin "$HEAD_REF"
-          elif [ -n "$GPG_PRIVATE_KEY" ]; then
-            echo "Bot commit failed, falling back to GPG signing..."
-            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-            git config --global user.signingkey "$GPG_KEY_ID"
-            git config --global commit.gpgsign true
-            git config --global user.email "$GPG_EMAIL"
-            git config --global user.name "$GPG_NAME"
-            git commit -S -m "chore: bump version to ${NEW_VERSION}"
-            git push origin "$HEAD_REF"
-          else
-            echo "::error::Commit failed and no GPG keys available as fallback"
-            exit 1
+          git commit -m "chore: bump version to ${NEW_VERSION}"
+          if ! git push origin "$HEAD_REF"; then
+            if [ -n "$GPG_PRIVATE_KEY" ]; then
+              echo "Push rejected, retrying with GPG-signed commit..."
+              echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+              git config --global user.signingkey "$GPG_KEY_ID"
+              git config --global commit.gpgsign true
+              git config --global user.email "$GPG_EMAIL"
+              git config --global user.name "$GPG_NAME"
+              git commit --amend --no-edit -S
+              git push origin "$HEAD_REF"
+            else
+              echo "::error::Push failed and no GPG keys available as fallback"
+              exit 1
+            fi
           fi
