@@ -30,6 +30,10 @@ jobs:
         env:
           HEAD_REF: ${{ github.head_ref }}
           IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GPG_EMAIL: ${{ secrets.GPG_EMAIL }}
+          GPG_NAME: ${{ secrets.GPG_NAME }}
         run: |
           set -euo pipefail
 
@@ -84,7 +88,21 @@ jobs:
             echo "No changes to commit."
             exit 0
           }
-          git push origin "HEAD:${HEAD_REF}"
+          if ! git push origin "HEAD:${HEAD_REF}"; then
+            if [ -n "$GPG_PRIVATE_KEY" ]; then
+              echo "Push rejected, retrying with GPG-signed commit..."
+              echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+              git config user.signingkey "$GPG_KEY_ID"
+              git config commit.gpgsign true
+              git config user.email "$GPG_EMAIL"
+              git config user.name "$GPG_NAME"
+              git commit --amend --no-edit -S
+              git push origin "HEAD:${HEAD_REF}"
+            else
+              echo "::error::Push failed and no GPG keys available as fallback"
+              exit 1
+            fi
+          fi
 
   release:
     name: Tag and release
