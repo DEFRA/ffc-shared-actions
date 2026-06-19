@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: 'main'
+      use-gpg-keys:
+        description: 'Use GPG keys for signing instead of GitHub Actions automatic signing'
+        required: false
+        type: boolean
+        default: false
     secrets:
       GPG_PRIVATE_KEY:
         description: 'Optional GPG private key for commit signing (backup). If not provided, uses GitHub Actions automatic signing'
@@ -52,8 +57,9 @@ jobs:
       - name: Configure git for signing
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          USE_GPG: ${{ inputs.use-gpg-keys }}
         run: |
-          if [ -n "$GPG_PRIVATE_KEY" ]; then
+          if [ "$USE_GPG" = "true" ] && [ -n "$GPG_PRIVATE_KEY" ]; then
             echo "Configuring GPG keys for commit signing..."
             echo "$GPG_PRIVATE_KEY" | gpg --batch --import
             git config --global user.signingkey ${{ secrets.GPG_KEY_ID }}
@@ -68,26 +74,19 @@ jobs:
 
       - name: Determine if version bump is needed
         id: version-check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || echo "")
-          if [ -z "$LATEST_TAG" ]; then
-            LATEST_TAG=$(git tag --sort=-version:refname | head -1)
-          fi
+          git fetch origin ${{ inputs.target-branch }} --depth=1
 
-          LATEST_VERSION="${LATEST_TAG#v}"
-          LATEST_VERSION="${LATEST_VERSION:-0.0.0}"
-
+          MAIN_VERSION=$(git show origin/${{ inputs.target-branch }}:package.json | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).version))")
           CURRENT_VERSION=$(node -p "require('./package.json').version")
 
-          echo "Latest released version: $LATEST_VERSION"
-          echo "Current package.json version: $CURRENT_VERSION"
+          echo "Version on ${{ inputs.target-branch }}: $MAIN_VERSION"
+          echo "Current PR version: $CURRENT_VERSION"
 
           NEEDS_BUMP=$(node -e "
             const [cm, cn, cp] = '$CURRENT_VERSION'.split('.').map(Number);
-            const [lm, ln, lp] = '$LATEST_VERSION'.split('.').map(Number);
-            const ahead = cm > lm || (cm === lm && cn > ln) || (cm === lm && cn === ln && cp > lp);
+            const [mm, mn, mp] = '$MAIN_VERSION'.split('.').map(Number);
+            const ahead = cm > mm || (cm === mm && cn > mn) || (cm === mm && cn === mn && cp > mp);
             console.log(ahead ? 'false' : 'true');
           ")
 
@@ -102,10 +101,11 @@ jobs:
         env:
           HEAD_REF: ${{ github.head_ref }}
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          USE_GPG: ${{ inputs.use-gpg-keys }}
         run: |
           NEW_VERSION=$(node -p "require('./package.json').version")
           git add package.json package-lock.json
-          if [ -n "$GPG_PRIVATE_KEY" ]; then
+          if [ "$USE_GPG" = "true" ] && [ -n "$GPG_PRIVATE_KEY" ]; then
             git commit -S -m "chore: bump version to ${NEW_VERSION}"
           else
             git commit -m "chore: bump version to ${NEW_VERSION}"
