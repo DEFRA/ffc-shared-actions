@@ -13,11 +13,6 @@ on:
         required: false
         type: string
         default: 'main'
-      use-gpg-keys:
-        description: 'Use GPG keys for signing instead of GitHub Actions automatic signing'
-        required: false
-        type: boolean
-        default: false
     secrets:
       GPG_PRIVATE_KEY:
         description: 'Optional GPG private key for commit signing (backup). If not provided, uses GitHub Actions automatic signing'
@@ -54,23 +49,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Configure git for signing
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          USE_GPG: ${{ inputs.use-gpg-keys }}
+      - name: Configure git
         run: |
-          if [ "$USE_GPG" = "true" ] && [ -n "$GPG_PRIVATE_KEY" ]; then
-            echo "Configuring GPG keys for commit signing..."
-            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-            git config --global user.signingkey ${{ secrets.GPG_KEY_ID }}
-            git config --global commit.gpgsign true
-            git config --global user.email ${{ secrets.GPG_EMAIL }}
-            git config --global user.name ${{ secrets.GPG_NAME }}
-          else
-            echo "Using GitHub Actions automatic commit signing"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            git config --global user.name "github-actions[bot]"
-          fi
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
 
       - name: Determine if version bump is needed
         id: version-check
@@ -101,13 +83,24 @@ jobs:
         env:
           HEAD_REF: ${{ github.head_ref }}
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          USE_GPG: ${{ inputs.use-gpg-keys }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GPG_EMAIL: ${{ secrets.GPG_EMAIL }}
+          GPG_NAME: ${{ secrets.GPG_NAME }}
         run: |
           NEW_VERSION=$(node -p "require('./package.json').version")
           git add package.json package-lock.json
-          if [ "$USE_GPG" = "true" ] && [ -n "$GPG_PRIVATE_KEY" ]; then
+          if git commit -m "chore: bump version to ${NEW_VERSION}"; then
+            git push origin "$HEAD_REF"
+          elif [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "Bot commit failed, falling back to GPG signing..."
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+            git config --global user.signingkey "$GPG_KEY_ID"
+            git config --global commit.gpgsign true
+            git config --global user.email "$GPG_EMAIL"
+            git config --global user.name "$GPG_NAME"
             git commit -S -m "chore: bump version to ${NEW_VERSION}"
+            git push origin "$HEAD_REF"
           else
-            git commit -m "chore: bump version to ${NEW_VERSION}"
+            echo "::error::Commit failed and no GPG keys available as fallback"
+            exit 1
           fi
-          git push origin "$HEAD_REF"
