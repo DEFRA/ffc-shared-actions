@@ -31,6 +31,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      issues: write
     outputs:
       audit_exit: ${{ steps.audit.outputs.audit_exit }}
       critical: ${{ steps.audit.outputs.critical }}
@@ -109,27 +110,75 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Notify PR when audit fails
-        if: steps.audit.outputs.audit_exit != '0' && github.event.pull_request.number
+      - name: Notify PR with audit result
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
+            const headRef = '${{ github.head_ref || github.ref_name }}';
+            let prNumber = context.payload.pull_request?.number || context.issue.number;
+
+            if (!prNumber) {
+              const { data: pullRequests } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100
+              });
+
+              prNumber = pullRequests.find((pr) => pr.head?.ref === headRef)?.number;
+            }
+
+            if (!prNumber) {
+              core.warning('No open pull request found for this branch. Skipping audit comment.');
+              return;
+            }
+
+            const failed = '${{ steps.audit.outputs.audit_exit }}' !== '0';
+            const threshold = '${{ inputs.audit-level }}';
+            const critical = '${{ steps.audit.outputs.critical }}';
+            const high = '${{ steps.audit.outputs.high }}';
+            const moderate = '${{ steps.audit.outputs.moderate }}';
+            const low = '${{ steps.audit.outputs.low }}';
+            const signature = [failed ? 'failed' : 'passed', threshold, critical, high, moderate, low].join('|');
+            const signatureMarker = `<!-- audit-signature:${signature} -->`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100
+            });
+
+            const hasDuplicate = comments.some((comment) =>
+              typeof comment.body === 'string' && comment.body.includes(signatureMarker)
+            );
+
+            if (hasDuplicate) {
+              core.info(`Skipping duplicate audit comment for signature ${signature}`);
+              return;
+            }
+
             const body = [
-              "Dependency audit failed.",
+              failed ? "Dependency audit failed." : "Dependency audit passed.",
               "",
-              `Threshold: **${{ inputs.audit-level }}**`,
-              `Critical: **${{ steps.audit.outputs.critical }}**`,
-              `High: **${{ steps.audit.outputs.high }}**`,
-              `Moderate: **${{ steps.audit.outputs.moderate }}**`,
-              `Low: **${{ steps.audit.outputs.low }}**`,
+              `Threshold: **${threshold}**`,
+              `Critical: **${critical}**`,
+              `High: **${high}**`,
+              `Moderate: **${moderate}**`,
+              `Low: **${low}**`,
               "",
-              "Please update vulnerable dependencies before merge."
+              failed
+                ? "Please update vulnerable dependencies before merge."
+                : "No vulnerabilities were found at the configured threshold.",
+              "",
+              signatureMarker
             ].join("\n");
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
+              issue_number: prNumber,
               body
             });
 
@@ -145,6 +194,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
 
     steps:
       - name: Checkout branch
@@ -170,6 +220,9 @@ jobs:
           echo "Version on ${{ inputs.target-branch }}: $MAIN_VERSION"
           echo "Current PR version: $CURRENT_VERSION"
 
+          echo "main_version=$MAIN_VERSION" >> "$GITHUB_OUTPUT"
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+
           NEEDS_BUMP=$(node -e "
             const [cm, cn, cp] = '$CURRENT_VERSION'.split('.').map(Number);
             const [mm, mn, mp] = '$MAIN_VERSION'.split('.').map(Number);
@@ -189,7 +242,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const headRef = context.payload.pull_request.head.ref;
+            const headRef = '${{ github.head_ref || github.ref_name }}';
 
             const { data: refData } = await github.rest.git.getRef({
               owner: context.repo.owner,
