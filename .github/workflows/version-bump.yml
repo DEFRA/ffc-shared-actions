@@ -1,4 +1,4 @@
-name: Reusable Version Bump
+name: Reusable Version and Dependency Audit
 
 on:
   workflow_call:
@@ -25,11 +25,18 @@ on:
         default: true
 
 jobs:
-  version-bump:
+  dependency-audit:
+    name: Dependency Audit
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
+    outputs:
+      audit_exit: ${{ steps.audit.outputs.audit_exit }}
+      critical: ${{ steps.audit.outputs.critical }}
+      high: ${{ steps.audit.outputs.high }}
+      moderate: ${{ steps.audit.outputs.moderate }}
+      low: ${{ steps.audit.outputs.low }}
 
     steps:
       - name: Checkout branch
@@ -68,6 +75,20 @@ jobs:
           fs.appendFileSync(out, 'moderate=' + (v.moderate || 0) + '\n');
           fs.appendFileSync(out, 'low=' + (v.low || 0) + '\n');
           "
+
+          echo "Dependency audit threshold: ${{ inputs.audit-level }}"
+          node -e "
+          const fs = require('fs');
+          const audit = JSON.parse(fs.readFileSync('audit.json','utf8'));
+          const v = (audit.metadata && audit.metadata.vulnerabilities) || {};
+          console.log('Vulnerabilities - critical: ' + (v.critical || 0) + ', high: ' + (v.high || 0) + ', moderate: ' + (v.moderate || 0) + ', low: ' + (v.low || 0));
+          "
+
+          if [ "$AUDIT_EXIT" -eq 0 ]; then
+            echo "Dependency audit passed."
+          else
+            echo "Dependency audit failed at threshold '${{ inputs.audit-level }}'."
+          fi
 
       - name: Add audit summary
         if: always()
@@ -116,8 +137,29 @@ jobs:
         if: steps.audit.outputs.audit_exit != '0'
         run: exit 1
 
+  version-bump:
+    name: Version Check and Bump
+    needs: dependency-audit
+    if: always() && inputs.run-version-bump
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
       - name: Determine if version bump is needed
-        if: inputs.run-version-bump
         id: version-check
         run: |
           git fetch origin "${{ inputs.target-branch }}" --depth=1
@@ -138,11 +180,11 @@ jobs:
           echo "needs_bump=$NEEDS_BUMP" >> "$GITHUB_OUTPUT"
 
       - name: Bump patch version
-        if: inputs.run-version-bump && steps.version-check.outputs.needs_bump == 'true'
+        if: steps.version-check.outputs.needs_bump == 'true'
         run: npm version patch --no-git-tag-version
 
       - name: Commit and push version bump
-        if: inputs.run-version-bump && steps.version-check.outputs.needs_bump == 'true'
+        if: steps.version-check.outputs.needs_bump == 'true'
         uses: actions/github-script@v7
         with:
           script: |
