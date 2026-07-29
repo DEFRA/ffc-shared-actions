@@ -4,29 +4,39 @@ on:
   workflow_call:
     inputs:
       node-version:
-        description: 'Node.js version to use'
+        description: Node.js version to use
         required: false
         type: string
-        default: '24'
+        default: "24"
       target-branch:
-        description: 'Target branch for version bump'
+        description: Target branch for version bump
         required: false
         type: string
-        default: 'main'
-
+        default: "main"
+      audit-level:
+        description: npm audit fail threshold (low|moderate|high|critical)
+        required: false
+        type: string
+        default: "moderate"
+      run-version-bump:
+        description: Run version bump logic
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   version-bump:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
-      - name: Checkout PR branch
+      - name: Checkout branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
@@ -35,17 +45,82 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Configure git
+      - name: Run dependency audit
+        id: audit
+        shell: bash
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
+          set +e
+          npm audit --audit-level="${{ inputs.audit-level }}" --json > audit.json
+          AUDIT_EXIT=$?
+          set -e
+
+          echo "audit_exit=$AUDIT_EXIT" >> "$GITHUB_OUTPUT"
+
+          node -e "
+          const fs = require('fs');
+          const audit = JSON.parse(fs.readFileSync('audit.json','utf8'));
+          const v = (audit.metadata && audit.metadata.vulnerabilities) || {};
+          const out = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(out, 'critical=' + (v.critical || 0) + '\n');
+          fs.appendFileSync(out, 'high=' + (v.high || 0) + '\n');
+          fs.appendFileSync(out, 'moderate=' + (v.moderate || 0) + '\n');
+          fs.appendFileSync(out, 'low=' + (v.low || 0) + '\n');
+          "
+
+      - name: Add audit summary
+        if: always()
+        run: |
+          {
+            echo "## Dependency Audit";
+            echo "";
+            echo "- Threshold: ${{ inputs.audit-level }}";
+            echo "- Critical: ${{ steps.audit.outputs.critical }}";
+            echo "- High: ${{ steps.audit.outputs.high }}";
+            echo "- Moderate: ${{ steps.audit.outputs.moderate }}";
+            echo "- Low: ${{ steps.audit.outputs.low }}";
+            echo "";
+            if [ "${{ steps.audit.outputs.audit_exit }}" != "0" ]; then
+              echo ":x: Audit failed at threshold '${{ inputs.audit-level }}'.";
+            else
+              echo ":white_check_mark: Audit passed.";
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify PR when audit fails
+        if: steps.audit.outputs.audit_exit != '0' && github.event.pull_request.number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "Dependency audit failed.",
+              "",
+              `Threshold: **${{ inputs.audit-level }}**`,
+              `Critical: **${{ steps.audit.outputs.critical }}**`,
+              `High: **${{ steps.audit.outputs.high }}**`,
+              `Moderate: **${{ steps.audit.outputs.moderate }}**`,
+              `Low: **${{ steps.audit.outputs.low }}**`,
+              "",
+              "Please update vulnerable dependencies before merge."
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
+
+      - name: Fail pipeline on vulnerable dependencies
+        if: steps.audit.outputs.audit_exit != '0'
+        run: exit 1
 
       - name: Determine if version bump is needed
+        if: inputs.run-version-bump
         id: version-check
         run: |
-          git fetch origin ${{ inputs.target-branch }} --depth=1
+          git fetch origin "${{ inputs.target-branch }}" --depth=1
 
           MAIN_VERSION=$(git show origin/${{ inputs.target-branch }}:package.json | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).version))")
           CURRENT_VERSION=$(node -p "require('./package.json').version")
@@ -60,14 +135,14 @@ jobs:
             console.log(ahead ? 'false' : 'true');
           ")
 
-          echo "needs_bump=$NEEDS_BUMP" >> $GITHUB_OUTPUT
+          echo "needs_bump=$NEEDS_BUMP" >> "$GITHUB_OUTPUT"
 
       - name: Bump patch version
-        if: steps.version-check.outputs.needs_bump == 'true'
+        if: inputs.run-version-bump && steps.version-check.outputs.needs_bump == 'true'
         run: npm version patch --no-git-tag-version
 
       - name: Commit and push version bump
-        if: steps.version-check.outputs.needs_bump == 'true'
+        if: inputs.run-version-bump && steps.version-check.outputs.needs_bump == 'true'
         uses: actions/github-script@v7
         with:
           script: |
