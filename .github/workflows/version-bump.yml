@@ -135,13 +135,16 @@ jobs:
             }
 
             const failed = '${{ steps.audit.outputs.audit_exit }}' !== '0';
+            const currentStatus = failed ? 'failed' : 'passed';
+            const oppositeStatus = failed ? 'passed' : 'failed';
             const threshold = '${{ inputs.audit-level }}';
             const critical = '${{ steps.audit.outputs.critical }}';
             const high = '${{ steps.audit.outputs.high }}';
             const moderate = '${{ steps.audit.outputs.moderate }}';
             const low = '${{ steps.audit.outputs.low }}';
-            const signature = [failed ? 'failed' : 'passed', threshold, critical, high, moderate, low].join('|');
+            const signature = [currentStatus, threshold, critical, high, moderate, low].join('|');
             const signatureMarker = `<!-- audit-signature:${signature} -->`;
+            const signaturePrefix = '<!-- audit-signature:';
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -150,8 +153,36 @@ jobs:
               per_page: 100
             });
 
+            const getAuditStatus = (body) => {
+              if (typeof body !== 'string') {
+                return null;
+              }
+              const match = body.match(/<!-- audit-signature:(passed|failed)\|/);
+              return match ? match[1] : null;
+            };
+
+            const commentsToDelete = comments.filter((comment) => {
+              const status = getAuditStatus(comment.body);
+              return status === oppositeStatus;
+            });
+
+            if (commentsToDelete.length > 0) {
+              await Promise.all(
+                commentsToDelete.map((comment) =>
+                  github.rest.issues.deleteComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: comment.id
+                  })
+                )
+              );
+              core.info(`Removed ${commentsToDelete.length} stale ${oppositeStatus} audit comment(s).`);
+            }
+
             const hasDuplicate = comments.some((comment) =>
-              typeof comment.body === 'string' && comment.body.includes(signatureMarker)
+              typeof comment.body === 'string' &&
+              comment.body.includes(signaturePrefix) &&
+              comment.body.includes(signatureMarker)
             );
 
             if (hasDuplicate) {
