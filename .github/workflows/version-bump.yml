@@ -162,12 +162,9 @@ jobs:
               )
               .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-            const primaryComment = managedComments[0];
-            const staleComments = managedComments.slice(1);
-
-            if (staleComments.length > 0) {
+            if (managedComments.length > 0) {
               await Promise.all(
-                staleComments.map((comment) =>
+                managedComments.map((comment) =>
                   github.rest.issues.deleteComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
@@ -175,7 +172,7 @@ jobs:
                   })
                 )
               );
-              core.info(`Removed ${staleComments.length} stale audit comment(s).`);
+              core.info(`Removed ${managedComments.length} previous audit comment(s).`);
             }
 
             const body = [
@@ -197,23 +194,13 @@ jobs:
               signatureMarker
             ].join("\n");
 
-            if (primaryComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: primaryComment.id,
-                body
-              });
-              core.info(`Updated audit comment for signature ${signature}`);
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body
-              });
-              core.info(`Created audit comment for signature ${signature}`);
-            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body
+            });
+            core.info(`Created audit comment for signature ${signature}`);
 
       - name: Fail pipeline on vulnerable dependencies
         if: steps.audit.outputs.audit_exit != '0'
