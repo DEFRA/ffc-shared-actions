@@ -110,13 +110,14 @@ uses: DEFRA/ffc-shared-actions/.github/workflows/version-bump-reusable.yml@v1.0.
 | `run-version-bump` | Run version bump logic | No | `true` |
 
 The audit excludes dev-only dependencies with `npm audit --omit=dev` and reports all production
-dependency vulnerabilities, including those below `audit-level`. When npm reports vulnerabilities
-with no available fix, the workflow flags them in the job summary and PR comment.
-Those findings remain blocking when they meet the configured threshold, so the CI pipeline may
-still fail until the dependency is updated or the audit policy is changed.
+dependency vulnerabilities, including those below `audit-level`. A fix is considered available
+only when npm reports it can be applied without a semver-major update. Vulnerabilities with no
+non-breaking fix, including those only fixable with `npm audit fix --force`, are flagged in the
+job summary and PR comment. They remain blocking when they meet the configured threshold.
 
-The reusable workflow exposes `unfixable` and `unfixable_at_threshold` as dependency-audit job
-outputs for consuming workflows that need to apply additional policy or notification logic.
+The reusable workflow exposes `unfixable_at_threshold` as a dependency-audit job output. It counts
+only vulnerabilities at or above the configured `audit-level` that have no non-breaking fix,
+including major-version-only fixes.
 
 ## Secrets
 

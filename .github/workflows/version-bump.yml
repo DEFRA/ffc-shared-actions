@@ -38,7 +38,6 @@ jobs:
       high: ${{ steps.audit.outputs.high }}
       moderate: ${{ steps.audit.outputs.moderate }}
       low: ${{ steps.audit.outputs.low }}
-      unfixable: ${{ steps.audit.outputs.unfixable }}
       unfixable_at_threshold: ${{ steps.audit.outputs.unfixable_at_threshold }}
 
     steps:
@@ -85,10 +84,11 @@ jobs:
           const levels = { low: 1, moderate: 2, high: 3, critical: 4 };
           const threshold = levels['${{ inputs.audit-level }}'];
           const vulnerabilities = Object.entries(audit.vulnerabilities || {});
-          const unfixable = vulnerabilities.filter(([, vulnerability]) => vulnerability.fixAvailable === false);
-          const unfixableAtThreshold = unfixable.filter(([, vulnerability]) => levels[vulnerability.severity] >= threshold);
+          const hasNonBreakingFix = (fixAvailable) => fixAvailable === true ||
+            (typeof fixAvailable === 'object' && fixAvailable !== null && fixAvailable.isSemVerMajor === false);
+          const unfixableAtThreshold = vulnerabilities.filter(([, vulnerability]) =>
+            levels[vulnerability.severity] >= threshold && !hasNonBreakingFix(vulnerability.fixAvailable));
           const out = process.env.GITHUB_OUTPUT;
-          fs.appendFileSync(out, 'unfixable=' + unfixable.length + '\n');
           fs.appendFileSync(out, 'unfixable_at_threshold=' + unfixableAtThreshold.length + '\n');
           "
 
@@ -117,13 +117,12 @@ jobs:
             echo "- High: ${{ steps.audit.outputs.high }}";
             echo "- Moderate: ${{ steps.audit.outputs.moderate }}";
             echo "- Low: ${{ steps.audit.outputs.low }}";
-            echo "- Unfixable vulnerabilities: ${{ steps.audit.outputs.unfixable }}";
-            echo "- Unfixable at threshold: ${{ steps.audit.outputs.unfixable_at_threshold }}";
+            echo "- Threshold-level vulnerabilities without a non-breaking fix: ${{ steps.audit.outputs.unfixable_at_threshold }}";
             echo "";
             if [ "${{ steps.audit.outputs.audit_exit }}" != "0" ]; then
               echo ":x: Audit failed at threshold '${{ inputs.audit-level }}'.";
               if [ "${{ steps.audit.outputs.unfixable_at_threshold }}" != "0" ]; then
-                echo ":warning: ${{ steps.audit.outputs.unfixable_at_threshold }} vulnerability(ies) at or above the threshold have no npm fix available.";
+                echo ":warning: ${{ steps.audit.outputs.unfixable_at_threshold }} vulnerability(ies) at or above the threshold have no non-breaking npm fix available; a fix may require a major update.";
                 echo "The CI pipeline may still fail because the audit remains blocking.";
               fi
             else
@@ -162,9 +161,8 @@ jobs:
             const high = '${{ steps.audit.outputs.high }}';
             const moderate = '${{ steps.audit.outputs.moderate }}';
             const low = '${{ steps.audit.outputs.low }}';
-            const unfixable = '${{ steps.audit.outputs.unfixable }}';
             const unfixableAtThreshold = '${{ steps.audit.outputs.unfixable_at_threshold }}';
-            const signature = [currentStatus, threshold, critical, high, moderate, low, unfixable, unfixableAtThreshold].join('|');
+            const signature = [currentStatus, threshold, critical, high, moderate, low, unfixableAtThreshold].join('|');
             const signatureMarker = `<!-- audit-signature:${signature} -->`;
             const commentMarker = '<!-- dependency-audit-comment -->';
             const signaturePrefix = '<!-- audit-signature:';
@@ -206,12 +204,11 @@ jobs:
               `High: **${high}**`,
               `Moderate: **${moderate}**`,
               `Low: **${low}**`,
-              `Unfixable vulnerabilities: **${unfixable}**`,
-              `Unfixable at threshold: **${unfixableAtThreshold}**`,
+              `Threshold-level vulnerabilities without a non-breaking fix: **${unfixableAtThreshold}**`,
               "",
               failed
                 ? unfixableAtThreshold !== '0'
-                  ? "Some vulnerabilities have no npm fix available. The CI pipeline may still fail because this audit remains blocking."
+                  ? "Some vulnerabilities have no non-breaking npm fix available; a fix may require a major update. The audit remains blocking."
                   : "Please update vulnerable dependencies before merge."
                 : "No vulnerabilities were found at the configured threshold.",
               "",
