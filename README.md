@@ -50,7 +50,10 @@ for configuration reference.
 they push. It runs the service's tests, submits an analysis in branch mode and prints a summary:
 
 ```
-Quality Gate Passed
+› Submitting Sonar analysis for <service> (branch: <branch>)...
+› Waiting for SonarCloud to process it...
+
+✔ Quality Gate Passed
 
 Issues
   0 New issues
@@ -95,8 +98,9 @@ Set `NO_COLOR=1` to turn off colour. The script exits 1 if the gate fails.
 ### Requirements
 
 - Membership of the `defra` SonarCloud organisation
-- A personal token from https://sonarcloud.io/account/security exported in your shell, e.g. in `~/.bashrc`:
-  `export SONAR_TOKEN=<token>`
+- A personal token from https://sonarcloud.io/account/security, added by running `./setup` in
+  [ffc-pay-core](https://github.com/DEFRA/ffc-pay-core#sonarcloud-quality-gate-check). Don't export it in
+  `~/.bashrc` by hand, `./setup` replaces that file
 - Node 18 or later, Docker and curl
 
 ### Adding it to a service
@@ -116,7 +120,10 @@ checkScript="$(mktemp)"
 trap 'rm -f "${checkScript}"' EXIT
 
 if ! curl -sSfL "${checkUrl}" -o "${checkScript}"; then
-  echo "Failed to fetch the shared Sonar check from ${checkUrl}" >&2
+  red='' dim='' reset=''
+  if [ -t 2 ] && [ -z "${NO_COLOR}" ]; then red='\033[1;31m' dim='\033[2m' reset='\033[0m'; fi
+  printf '%b✖ Failed to fetch the shared Sonar check from %s%b\n' "${red}" "${checkUrl}" "${reset}" >&2
+  printf '%b  Check your connection, or set SONAR_SKIP_AUTOCHECK=true to run scripts/test without it.%b\n' "${dim}" "${reset}" >&2
   exit 1
 fi
 
@@ -131,7 +138,10 @@ if [ "${SONAR_SKIP_AUTOCHECK}" != "true" ]; then
   if [ -n "${SONAR_TOKEN}" ]; then
     "${projectRoot}/scripts/sonar" --after-tests
   else
-    echo "SONAR_TOKEN not set, skipping Sonar Quality Gate check (see scripts/sonar --help)"
+    yellow='' dim='' reset=''
+    if [ -t 1 ] && [ -z "${NO_COLOR}" ]; then yellow='\033[1;33m' dim='\033[2m' reset='\033[0m'; fi
+    printf '\n%b⚠ SonarCloud Quality Gate check is not set up (SONAR_TOKEN is not set), so it was skipped.%b\n' "${yellow}" "${reset}"
+    printf '%b  Run ./setup in ffc-pay-core to add your token, or see scripts/sonar --help.%b\n' "${dim}" "${reset}"
   fi
 fi
 ```

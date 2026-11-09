@@ -20,7 +20,9 @@ const POLL_INTERVAL_MS = 2000
 const DEFAULT_COVERAGE_TARGET = 80
 const COVERAGE_COLUMN_WIDTH = 8
 const COUNT_COLUMN_WIDTH = 7
-const ANSI = { bold: 1, dim: 2, red: 31, green: 32, yellow: 33 }
+const ANSI = { bold: 1, dim: 2, red: 31, green: 32, yellow: 33, cyan: 36 }
+const ICON = { pass: '✔', fail: '✖', warn: '⚠', step: '›' }
+const SETUP_HINT = 'Run ./setup in ffc-pay-core to add or replace your token.'
 
 const HELP = `
   Usage: scripts/sonar [OPTION...]
@@ -64,6 +66,18 @@ const red = paint(ANSI.red)
 const yellow = paint(ANSI.yellow)
 const bold = paint(ANSI.bold)
 const dim = paint(ANSI.dim)
+const cyan = paint(ANSI.cyan)
+
+// An error with an optional line telling the dev what to do about it
+class CheckError extends Error {
+  constructor (message, hint) {
+    super(message)
+    this.hint = hint
+  }
+}
+
+const step = (text) => console.log(cyan(`${ICON.step} ${text}`))
+const warn = (text) => console.log(yellow(`${ICON.warn} ${text}`))
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
 const percent = (value) => value === undefined ? 'n/a' : `${Number(value).toFixed(1)}%`
@@ -84,12 +98,12 @@ function parseArgs (args) {
     } else if (arg === '-h' || arg === '--help') {
       options.help = true
     } else {
-      throw new Error(`Unknown option: ${arg}. Run with --help to see the options.`)
+      throw new CheckError(`Unknown option: ${arg}`, 'Run with --help to see the options.')
     }
   }
 
   if (options.runTests && options.skipTests) {
-    throw new Error('Use either --run-tests or --skip-tests, not both.')
+    throw new CheckError('Use either --run-tests or --skip-tests, not both.')
   }
 
   return options
@@ -103,7 +117,7 @@ function runTests (projectRoot) {
   })
 
   if (result.status !== 0) {
-    throw new Error('Tests failed, not running the Sonar check.')
+    throw new CheckError('Tests failed, so the Sonar check did not run.', 'Fix the failing tests above, then run it again.')
   }
 }
 
@@ -168,19 +182,19 @@ function prepareCoverage (options, projectRoot) {
   }
 
   if (!options.runTests && isCoverageUpToDate(lastTestRun, fingerprint)) {
-    console.log(green(`No code changes since the tests passed ${timeAgo(lastTestRun.testedAt)}, reusing their coverage.`))
+    console.log(green(`${ICON.pass} No code changes since the tests passed ${timeAgo(lastTestRun.testedAt)}, reusing their coverage.`))
     console.log(dim('Use --run-tests to run them anyway.'))
     return
   }
 
   if (options.skipTests) {
     if (!fs.existsSync(LCOV_PATH)) {
-      throw new Error(`No ${LCOV_PATH} found, run without --skip-tests first.`)
+      throw new CheckError(`No ${LCOV_PATH} found.`, 'Run without --skip-tests first so the tests produce coverage.')
     }
     const warning = lastTestRun
       ? `code has changed since the tests passed ${timeAgo(lastTestRun.testedAt)}`
       : `can't tell if ${LCOV_PATH} matches the current code`
-    console.log(yellow(`Warning: ${warning}, coverage may be out of date.`))
+    warn(`Warning: ${warning}, coverage may be out of date.`)
     return
   }
 
@@ -204,7 +218,7 @@ function scan (projectKey, branch) {
 
     if (result.status !== 0) {
       console.log(result.stdout, result.stderr)
-      throw new Error('Sonar scan failed, see the output above.')
+      throw new CheckError('Sonar scan failed.', 'The scanner output is above.')
     }
 
     const report = fs.readFileSync(path.join(workDir, 'report-task.txt'), 'utf8')
@@ -221,8 +235,16 @@ async function sonarApi (endpoint, params) {
   const url = `${SONAR_HOST}/api/${endpoint}?${new URLSearchParams(params)}`
   const response = await fetch(url, { headers: { Authorization: `Bearer ${SONAR_TOKEN}` } })
 
+  if (response.status === 401) {
+    throw new CheckError('SonarCloud rejected SONAR_TOKEN (401). It may be wrong, expired or revoked.',
+      `Generate a new one at ${SONAR_HOST}/account/security. ${SETUP_HINT}`)
+  }
+  if (response.status === 403) {
+    throw new CheckError(`Your SonarCloud account can't access this project (403).`,
+      `Ask a lead to add you to the ${SONAR_ORG} organisation.`)
+  }
   if (!response.ok) {
-    throw new Error(`${response.status} from ${url}, check SONAR_TOKEN is valid and has access`)
+    throw new CheckError(`SonarCloud returned ${response.status} from ${url}`, 'Try again in a minute, SonarCloud may be having problems.')
   }
 
   return response.json()
@@ -236,13 +258,13 @@ async function waitForAnalysis (taskId) {
       return
     }
     if (task.status === 'FAILED' || task.status === 'CANCELED') {
-      throw new Error(`Sonar analysis ${task.status}`)
+      throw new CheckError(`Sonar analysis ${task.status.toLowerCase()}.`, 'Check the background tasks for the project on SonarCloud.')
     }
 
     await sleep(POLL_INTERVAL_MS)
   }
 
-  throw new Error('Timed out waiting for Sonar to process the analysis')
+  throw new CheckError('Timed out waiting for SonarCloud to process the analysis.', 'SonarCloud is busy. Retry with --skip-tests to skip rerunning the tests.')
 }
 
 // New code values come back under period (newer API) or periods (older API)
@@ -306,7 +328,7 @@ function printSummary ({ passed, conditions, metrics, newIssues, acceptedIssues 
   const hotspots = Number(metrics.new_security_hotspots || 0)
 
   console.log('')
-  console.log(bold(passed ? green('Quality Gate Passed') : red('Quality Gate Failed')))
+  console.log(bold(passed ? green(`${ICON.pass} Quality Gate Passed`) : red(`${ICON.fail} Quality Gate Failed`)))
   console.log('')
   console.log(bold('Issues'))
   console.log(`  ${(newIssues > 0 ? yellow : green)(plural(newIssues, 'New issue'))}`)
@@ -319,7 +341,7 @@ function printSummary ({ passed, conditions, metrics, newIssues, acceptedIssues 
 
   if (!passed) {
     console.log('')
-    console.log(bold(red('Failed conditions')))
+    console.log(bold(red(`${ICON.fail} Failed conditions`)))
     for (const condition of conditions.filter(c => c.status === 'ERROR')) {
       const label = METRIC_LABELS[condition.metricKey] || condition.metricKey
       const required = `${condition.comparator === 'LT' ? '>=' : '<='} ${condition.errorThreshold}`
@@ -334,7 +356,7 @@ function printFiles (files, coverageTarget) {
   console.log(bold('Files with uncovered new code'))
 
   if (files.length === 0) {
-    console.log(`  ${green('None, all new code is covered')}`)
+    console.log(`  ${green(`${ICON.pass} None, all new code is covered`)}`)
     return
   }
 
@@ -358,9 +380,9 @@ async function main () {
   }
 
   if (!SONAR_TOKEN) {
-    console.log('SONAR_TOKEN is not set.')
-    console.log(`Generate one at ${SONAR_HOST}/account/security and add this to ~/.bashrc:`)
-    console.log('  export SONAR_TOKEN=<token>')
+    warn('SONAR_TOKEN is not set, so the Sonar check can\'t run.')
+    console.log(dim(`  Generate a token at ${SONAR_HOST}/account/security, then ${SETUP_HINT.charAt(0).toLowerCase()}${SETUP_HINT.slice(1)}`))
+    console.log(dim('  Already set it? Open a new terminal so your shell picks it up.'))
     return 1
   }
 
@@ -372,8 +394,9 @@ async function main () {
 
   prepareCoverage(options, projectRoot)
 
-  console.log(`Submitting Sonar analysis for ${projectKey} (branch: ${branch})...`)
+  step(`Submitting Sonar analysis for ${projectKey} (branch: ${branch})...`)
   const report = scan(projectKey, branch)
+  step('Waiting for SonarCloud to process it...')
   await waitForAnalysis(report.ceTaskId)
 
   const results = await getResults(projectKey, branch)
@@ -388,7 +411,7 @@ async function main () {
   }
 
   console.log('')
-  console.log(`See analysis details on SonarQube Cloud: ${report.dashboardUrl}`)
+  console.log(`${dim('See analysis details on SonarQube Cloud:')} ${cyan(report.dashboardUrl)}`)
 
   return results.passed ? 0 : 1
 }
@@ -396,6 +419,10 @@ async function main () {
 main()
   .then(code => process.exit(code))
   .catch(err => {
-    console.error(red(err.message))
+    console.error('')
+    console.error(bold(red(`${ICON.fail} ${err.message}`)))
+    if (err.hint) {
+      console.error(dim(`  ${err.hint}`))
+    }
     process.exit(1)
   })
