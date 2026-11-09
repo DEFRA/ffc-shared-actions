@@ -44,6 +44,113 @@ for configuration reference.
   not in the global `[allowlist]`, to avoid unintentionally suppressing other rules.
 - Always include a comment explaining why the entry is safe.
 
+# Local Sonar Check
+
+`scripts/sonar-check.js` shows a dev the real SonarCloud Quality Gate result for their branch before
+they push. It runs the service's tests, submits an analysis in branch mode and prints a summary:
+
+```
+› Submitting Sonar analysis for <service> (branch: <branch>)...
+› Waiting for SonarCloud to process it...
+
+✔ Quality Gate Passed
+
+Issues
+  0 New issues
+  0 Accepted issues
+
+Measures
+  0 Security Hotspots
+  100.0% Coverage on New Code
+  0.0% Duplication on New Code
+
+See analysis details on SonarQube Cloud: https://sonarcloud.io/dashboard?id=<service>&branch=<branch>
+```
+
+It always runs in branch mode, so nothing is posted to the pull request. The project key comes from
+`package.json` and the branch from git, so there's no per service config.
+
+### Skipping the tests when nothing has changed
+
+When the tests pass, the check saves a fingerprint of the code (a git tree hash of the working tree,
+including uncommitted and new files) to `test-output/.sonar-check.json`. Next time, if the fingerprint
+matches and `lcov.info` hasn't been rewritten since, it skips the tests and reuses the coverage:
+
+```
+No code changes since the tests passed 4 minutes ago, reusing their coverage.
+```
+
+So running `./scripts/sonar -f` straight after `./scripts/test` goes straight to the Sonar check.
+The fingerprint is built in a copy of the git index, so staged changes aren't touched.
+
+### Options
+
+| Option | Description |
+|---|---|
+| `-t`, `--run-tests` | Always run `scripts/test`, even if nothing has changed |
+| `-s`, `--skip-tests` | Never run `scripts/test`, reuse `test-output/lcov.info` as it is (warns if the code has changed) |
+| `-f`, `--files` | List files with uncovered new code, worst first |
+| `-h`, `--help` | Show help |
+| `--after-tests` | Used by the `scripts/test` hook to record a passing run |
+
+Set `NO_COLOR=1` to turn off colour. The script exits 1 if the gate fails.
+
+### Requirements
+
+- Membership of the `defra` SonarCloud organisation
+- A personal token from https://sonarcloud.io/account/security, added by running `./setup` in
+  [ffc-pay-core](https://github.com/DEFRA/ffc-pay-core#sonarcloud-quality-gate-check). Don't export it in
+  `~/.bashrc` by hand, `./setup` replaces that file
+- Node 18 or later, Docker and curl
+
+### Adding it to a service
+
+Add `scripts/sonar` to the service. It fetches the shared script and runs it, passing through any options:
+
+```sh
+#!/usr/bin/env sh
+
+# Local SonarCloud Quality Gate check, shared across FCP services.
+# The logic lives in DEFRA/ffc-shared-actions, run scripts/sonar --help for options.
+
+set -e
+
+checkUrl="${SONAR_CHECK_URL:-https://raw.githubusercontent.com/DEFRA/ffc-shared-actions/main/scripts/sonar-check.js}"
+checkScript="$(mktemp)"
+trap 'rm -f "${checkScript}"' EXIT
+
+if ! curl -sSfL "${checkUrl}" -o "${checkScript}"; then
+  red='' dim='' reset=''
+  if [ -t 2 ] && [ -z "${NO_COLOR}" ]; then red='\033[1;31m' dim='\033[2m' reset='\033[0m'; fi
+  printf '%b✖ Failed to fetch the shared Sonar check from %s%b\n' "${red}" "${checkUrl}" "${reset}" >&2
+  printf '%b  Check your connection, or set SONAR_SKIP_AUTOCHECK=true to run scripts/test without it.%b\n' "${dim}" "${reset}" >&2
+  exit 1
+fi
+
+cd "$(dirname "$0")/.."
+node "${checkScript}" "$@"
+```
+
+Add this to the end of `scripts/test` so the check runs after the tests when `SONAR_TOKEN` is set:
+
+```sh
+if [ "${SONAR_SKIP_AUTOCHECK}" != "true" ]; then
+  if [ -n "${SONAR_TOKEN}" ]; then
+    "${projectRoot}/scripts/sonar" --after-tests
+  else
+    yellow='' dim='' reset=''
+    if [ -t 1 ] && [ -z "${NO_COLOR}" ]; then yellow='\033[1;33m' dim='\033[2m' reset='\033[0m'; fi
+    printf '\n%b⚠ SonarCloud Quality Gate check is not set up (SONAR_TOKEN is not set), so it was skipped.%b\n' "${yellow}" "${reset}"
+    printf '%b  Run ./setup in ffc-pay-core to add your token, or see scripts/sonar --help.%b\n' "${dim}" "${reset}"
+  fi
+fi
+```
+
+And add `"test:sonar": "./scripts/sonar"` to the `scripts` in `package.json`.
+
+To test changes to the shared script before they're merged, point `SONAR_CHECK_URL` at a branch or a
+local copy, e.g. `SONAR_CHECK_URL=file:///path/to/sonar-check.js ./scripts/sonar -s`.
+
 # Version Bump Workflow
 
 This workflow provides automated version management for Node.js projects using npm and GPG-signed commits. Not to be confused by the shared-action-versioning also in this repository, which is for managing versions of the shared actions themselves. This workflow is designed to be reusable across multiple service repositories, ensuring consistent version bumping practices while maintaining security through GPG signing.
